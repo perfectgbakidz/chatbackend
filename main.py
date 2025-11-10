@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import create_engine, Column, String, Text, DateTime, ForeignKey, Table
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
-from passlib.context import CryptContext
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
@@ -20,19 +19,12 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
 # ----------------------------------------------------------------------
-# SECURITY CONFIGURATION (JWT + Password Hashing)
+# SECURITY CONFIGURATION (JWT ONLY — No password encryption)
 # ----------------------------------------------------------------------
 SECRET_KEY = "supersecretkey"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-def hash_password(password: str):
-    return pwd_context.hash(password)
-
-def verify_password(plain: str, hashed: str):
-    return pwd_context.verify(plain, hashed)
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
@@ -64,7 +56,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     username = Column(String, unique=True, index=True)
     displayName = Column(String)
-    passwordHash = Column(String)
+    passwordHash = Column(String)  # Plain text password (no encryption)
     avatarUrl = Column(String, nullable=True)
     status = Column(String, nullable=True)
     lastSeen = Column(String, default="offline")
@@ -165,9 +157,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 def signup(user: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == user.email).first():
         raise HTTPException(400, "Email already registered")
-    hashed = hash_password(user.password)
-    new_user = User(email=user.email, username=user.username,
-                    displayName=user.displayName, passwordHash=hashed)
+    new_user = User(
+        email=user.email,
+        username=user.username,
+        displayName=user.displayName,
+        passwordHash=user.password  # Store password directly
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -177,7 +172,7 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.passwordHash):
+    if not user or user.passwordHash != form_data.password:
         raise HTTPException(401, "Invalid credentials")
     token = create_access_token({"sub": user.id})
     return {"access_token": token, "token_type": "bearer"}
@@ -185,7 +180,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 # ----------------------------------------------------------------------
 # MAIN APP INITIALIZATION
 # ----------------------------------------------------------------------
-app = FastAPI(title="React Chat App Backend (SQLite)")
+app = FastAPI(title="React Chat App Backend (SQLite - No Password Encryption)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -199,7 +194,7 @@ app.include_router(router)
 
 @app.get("/")
 def home():
-    return {"message": "Welcome to the React Chat App Backend API 🚀"}
+    return {"message": "Welcome to the React Chat App Backend API (Plain Password Version) 🚀"}
 
 # ----------------------------------------------------------------------
 # SIMPLE WEBSOCKET MANAGER (Real-time Messaging)
