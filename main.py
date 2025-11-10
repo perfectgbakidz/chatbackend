@@ -170,12 +170,24 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer"}
 
 @router.post("/login", response_model=Token)
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or user.passwordHash != form_data.password:
+def login(credentials: dict, db: Session = Depends(get_db)):
+    email = credentials.get("email")
+    password = credentials.get("password")
+
+    if not email or not password:
+        raise HTTPException(400, "Email and password required")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user or user.passwordHash != password:
         raise HTTPException(401, "Invalid credentials")
+
     token = create_access_token({"sub": user.id})
     return {"access_token": token, "token_type": "bearer"}
+
+
+@router.get("/me", response_model=UserOut)
+def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
 
 # ----------------------------------------------------------------------
 # MAIN APP INITIALIZATION
